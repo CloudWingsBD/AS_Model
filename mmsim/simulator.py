@@ -13,7 +13,7 @@ class SimResult:
     pnl: np.ndarray            # terminal PnL per path: cash + q_T * S_T
     q: np.ndarray              # terminal inventory per path
     n_trades: np.ndarray       # number of fills per path
-    spread_pnl: np.ndarray     # sum over fills of the edge vs the mid at quote time
+    spread_pnl: np.ndarray     # sum over fills of the edge vs the mid at quote time, net of p.fill_cost
     inventory_pnl: np.ndarray  # sum_i q_{i+1} * dS_i (PnL from holding inventory while the mid moves)
     impact_pnl: np.ndarray     # part of inventory_pnl caused by fill-triggered mid moves (zero when p.impact == 0)
     clip_frac: float           # share of (path, step, side) where A*exp(-k*delta)*dt > 1 and was clipped
@@ -45,7 +45,9 @@ def simulate(strategy: Strategy, p: Params = Params(), n_paths: int = 1000, seed
     Each step i: the strategy quotes (bid, ask) given (s_i, q_i); the ask fills with prob A*exp(-k*delta_a)*dt,
     the bid with prob A*exp(-k*delta_b)*dt (independently, clipped to [0, 1]); fills execute at the quoted
     prices; then the mid moves by dS_i, plus p.impact * (sold - bought) (adverse selection: a filled ask means
-    a buyer, and the mid moves up). Terminal inventory is marked at the mid.
+    a buyer, and the mid moves up). Every fill also costs p.fill_cost, i.e. executes that much worse than quoted
+    (adverse selection from order flow that moves the price whether or not it trades with us). Terminal inventory
+    is marked at the mid.
     Same seed (or same `randomness`) => same mid increments dS and same fill uniforms for every strategy
     (with p.impact > 0 the mid path itself also depends on the strategy's fills).
     """
@@ -91,8 +93,8 @@ def simulate(strategy: Strategy, p: Params = Params(), n_paths: int = 1000, seed
                 log["mid"].append(s[idx])
                 log["q_before"].append(q[idx])
 
-        spread_pnl += sold * delta_a + bought * delta_b
-        x += sold * ask - bought * bid
+        spread_pnl += sold * (delta_a - p.fill_cost) + bought * (delta_b - p.fill_cost)
+        x += sold * (ask - p.fill_cost) - bought * (bid + p.fill_cost)
         q = q - sold + bought
         n_trades += sold.astype(float) + bought
         jump = p.impact * (sold.astype(float) - bought)
