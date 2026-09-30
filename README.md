@@ -1,6 +1,34 @@
 # Avellaneda–Stoikov market-making simulator
 
-A replication of Avellaneda & Stoikov (2008), *High-frequency trading in a limit order book*, Quantitative Finance 8(3).
+[![tests](https://github.com/CloudWingsBD/AS_Model/actions/workflows/tests.yml/badge.svg)](https://github.com/CloudWingsBD/AS_Model/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+A replication of Avellaneda & Stoikov (2008), *High-frequency trading in a limit order book*, Quantitative Finance 8(3). It pairs a vectorised Monte Carlo simulator with an exact dynamic-programming solution of the paper's discrete model, which is used to validate both the simulator and the paper's tables.
+
+## Results
+
+- **Matches the paper.** The dynamic program gives the exact PnL moments of the discrete model, free of simulation noise. All 24 numbers in the paper's Tables 1–3 are within 1.9 standard errors of the exact values (χ² = 19.4 with 24 degrees of freedom, p = 0.73), so the differences are just the sampling noise of the paper's 1000 paths.
+- **Validated three ways.** The dynamic program agrees with brute-force enumeration of every path on a small model (to 1e−9), with the closed form for the symmetric strategy (to 1e−10), and with 40000-path Monte Carlo at the paper's parameters.
+- **The trade-off.** At the same spread, skewing quotes by inventory keeps 70–100% of the symmetric strategy's mean profit and cuts its PnL standard deviation to 45–65% (γ = 0.01–1).
+- **Monte Carlo cannot estimate the CARA certainty equivalent** of the symmetric strategy. At γ = 0.1 the exact value is 39.8, while Monte Carlo with 10³–10⁶ paths gives 44.5–54.0: expected utility is dominated by rare paths on which inventory runs away.
+- **Results depend on dt.** At the paper's dt = 0.005, the symmetric strategy's PnL standard deviation is about 12% below its continuous-time limit.
+
+![Mean vs standard deviation of terminal PnL as gamma varies, and the inventory/symmetric ratios](figures/mean_std_frontier.png)
+
+*Left: mean vs standard deviation of terminal PnL as γ varies; at each γ both strategies use the same spread. Right: inventory / symmetric ratios. Above γ ≈ 2 the same-average-spread benchmark stops being meaningful.*
+
+Published values vs exact values:
+
+| γ | Strategy | Profit (paper / exact) | Std of profit (paper / exact) | Std of final q (paper / exact) |
+|---|---|---|---|---|
+| 0.1 | inventory | 65.0 / 64.89 | 6.6 / 6.54 | 2.9 / 2.93 |
+| 0.1 | symmetric | 68.4 / 68.22 | 12.7 / 13.46 | 8.4 / 8.40 |
+| 0.01 | inventory | 68.6 / 68.40 | 8.7 / 8.96 | 5.1 / 5.21 |
+| 0.01 | symmetric | 68.8 / 68.67 | 12.8 / 13.68 | 8.7 / 8.71 |
+| 1 | inventory | 31.4 / 31.45 | 5.0 / 4.84 | 1.7 / 1.64 |
+| 1 | symmetric | 44.0 / 43.69 | 11.0 / 10.73 | 5.1 / 5.17 |
+
+The full analysis, more figures and the derivations are in [`01_replication.ipynb`](01_replication.ipynb).
 
 ## Layout
 
@@ -11,7 +39,8 @@ mmsim/            simulator package
   simulator.py    vectorised Monte Carlo: common random numbers, PnL decomposition, per-fill trade log, discretisation diagnostics
   analytics.py    exact solutions: closed-form moments of the symmetric strategy; exact moments, kurtosis, CARA CE and inventory distribution of any (q, t) strategy by dynamic programming
   stats.py        standard errors, paired differences, CARA certainty equivalent
-tests/            unit tests
+tests/            unit tests (run by CI on every push)
+figures/          README figure, exported from the notebook
 01_replication.ipynb   replication experiments, figures and discussion
 ```
 
@@ -39,3 +68,7 @@ print(inv.pnl.mean(), inv.pnl.std(), sym.pnl.mean(), sym.pnl.std())
 
 - Avellaneda, M. & Stoikov, S. (2008). High-frequency trading in a limit order book. *Quantitative Finance* 8(3), 217–224. Journal-version PDF: https://math.nyu.edu/inmemoriam/avellaneda//HighFrequencyTrading.pdf (this project compares against Tables 1–3 of this version)
 - 2006 preprint: https://people.orie.cornell.edu/sfs33/LimitOrderBook.pdf (its tables differ from the published version; see Appendix B of the notebook)
+
+## License
+
+[MIT](LICENSE)
