@@ -5,13 +5,14 @@
 
 **Sheng Dai** · [bob.dai@mail.utoronto.ca](mailto:bob.dai@mail.utoronto.ca)
 
-A study of the Avellaneda & Stoikov (2008) market-making model from *High-frequency trading in a limit order book* (Quantitative Finance 8(3)). The project replicates the paper exactly, extends the model with adverse selection, and tests it against a week of real BTC and ETH trades from Binance. The common thread is that the paper's discrete model can be solved exactly by dynamic programming on the (inventory, time) grid, so every claim can be checked without simulation noise.
+A study of the Avellaneda & Stoikov (2008) market-making model from *High-frequency trading in a limit order book* (Quantitative Finance 8(3)). The project replicates the paper exactly, extends the model with adverse selection, tests it against a week of real BTC and ETH trades from Binance, and computes the model's exact optimal quotes. The common thread is that the paper's discrete model can be solved exactly by dynamic programming on the (inventory, time) grid, so every claim can be checked without simulation noise.
 
 ## Highlights
 
 - **Exact replication.** An exact dynamic-programming solution of the paper's model puts all 24 numbers in its Tables 1–3 within 1.9 standard errors of the true values (χ² = 19.4 with 24 degrees of freedom, p = 0.73). The solution is validated against brute-force enumeration of every path, closed forms and Monte Carlo.
 - **Adverse selection.** When each fill moves the mid against the market maker by ε, the cost is exactly (ε/2)(N₁ + q_T²) on every path, where N₁ is the number of steps with exactly one fill. The textbook adjustment of the quotes over-reacts to it.
 - **Real data.** Calibrated on Binance tick data, the model predicts the number of fills to within 11%, but it predicts profits where a backtest loses money every day. The cause is adverse selection: after a fill the price moves about \$16 (BTC) or \$0.55 (ETH) against the market maker, two to three times the spread earned.
+- **Optimal quotes.** The exact optimum beats the A-S quotes by a wide margin at the paper's parameters (certainty equivalent 50.2 vs 22.4 at γ = 1). With the measured adverse selection it cuts real-data backtest losses by a median 95%, although no quote distance makes money when re-quoting once a second.
 
 ## Tech stack
 
@@ -20,7 +21,7 @@ A study of the Avellaneda & Stoikov (2008) market-making model from *High-freque
 - **Data processing:** pandas, for tick-level trade data (Binance aggTrades archives), per-second aggregation, calibration and backtesting
 - **Visualisation and research:** Matplotlib, Jupyter notebooks
 - **Testing and CI:** pytest; GitHub Actions runs the test suite on Python 3.9 and 3.13 on every push
-- **Methods:** dynamic programming (exact backward recursions for PnL moments and CARA expected utility), Monte Carlo with common random numbers, statistical inference (standard errors, z-scores, χ² tests), least-squares calibration, backtesting on tick data
+- **Methods:** stochastic optimal control (CARA utility, backward induction), Monte Carlo with common random numbers, exact moment recursions, statistical inference (standard errors, z-scores, χ² tests), least-squares calibration, backtesting on tick data
 
 ## Notebooks
 
@@ -29,6 +30,7 @@ A study of the Avellaneda & Stoikov (2008) market-making model from *High-freque
 | [`01_replication.ipynb`](01_replication.ipynb) | Does an exact solution of the paper's model reproduce its Tables 1–3? |
 | [`02_adverse_selection.ipynb`](02_adverse_selection.ipynb) | What does adverse selection cost the paper's strategies, and how should the quotes respond? |
 | [`03_real_data.ipynb`](03_real_data.ipynb) | How well does the model predict market making on a week of real BTC and ETH trades? |
+| [`04_optimal_quotes.ipynb`](04_optimal_quotes.ipynb) | What are the exact optimal quotes, and how far are the A-S quotes from them? |
 
 ## Results in more detail
 
@@ -71,27 +73,39 @@ The model is calibrated on a week of Binance spot trades (BTCUSDT and ETHUSDT, 2
 
 - **The fill model works.** The exponential fill curve fits the data, and the number of fills is predicted to within 11% on every day.
 - **The paper's profit prediction fails.** It predicts a profit every day, while the backtest loses money every day, because of the adverse selection described above.
-- **Every fill costs one full ε, for both strategies.** Inventory control does not cut the adverse-selection cost, contrary to notebook 02's single-dealer model. Charging ε per fill predicts mean PnL to within about one standard error.
+- **Every fill costs one full ε, for both strategies.** Inventory control does not cut the adverse-selection cost, contrary to notebook 02's single-dealer model. Charging ε per fill (`Params(fill_cost=ε)`) predicts mean PnL to within about one standard error.
 - **Risk is understated, and forecasts need frequent recalibration.** The model predicts 37–72% of the actual PnL standard deviation. Calibrating on the previous hour gives a 0.5–0.6 correlation with the next hour's PnL, against about zero when calibrating on the previous day.
 
 ![Predicted vs backtested mean PnL per day for three versions of the model](figures/real_data_predictions.png)
+
+### Optimal quotes (notebook 04)
+
+Backward induction on the (q, t) grid, with a closed-form first-order condition at each state, gives the exact CARA-optimal quotes of the discrete model (`mmsim.optimal_policy`).
+
+- **A-S is far from optimal at the paper's parameters.** Its certainty equivalent is 62.8 against 65.2 for the optimum at γ = 0.1, and 22.4 against 50.2 at γ = 1. The optimal quotes are stationary away from the horizon and skew much less with inventory. The Guéant–Lehalle–Fernandez-Tapia (2013) closed form comes within 0.3 of the optimum.
+- **Best response to adverse selection.** Against a per-fill cost c, the optimum moves its quotes out by about c. Against notebook 02's single-dealer impact, it skews hard only near the horizon.
+- **On real data no quote distance reliably makes money** when re-quoting once a second. The optimal policy with the measured per-fill cost cuts the backtest losses by a median 95%, but still loses on every day.
+
+![Optimal vs A-S vs GLFT ask quotes as functions of inventory at several times](figures/optimal_quotes.png)
 
 ## Project layout
 
 ```
 mmsim/            simulator package
-  params.py       Params dataclass (defaults are the paper's parameters; impact adds adverse selection)
-  strategies.py   AvellanedaStoikov, Symmetric, AdjustedAS; a new strategy implements quote(s, q, i, p) -> (centre, bid, ask)
+  params.py       Params dataclass (defaults are the paper's parameters; impact and fill_cost add adverse selection)
+  strategies.py   AvellanedaStoikov, Symmetric, AdjustedAS, GLFT, TablePolicy; a new strategy implements quote(s, q, i, p) -> (centre, bid, ask)
   simulator.py    vectorised Monte Carlo: common random numbers, PnL decomposition, per-fill trade log, discretisation diagnostics
   analytics.py    exact solutions: closed-form moments of the symmetric strategy; exact moments, kurtosis, CARA CE and inventory distribution of any (q, t) strategy by dynamic programming, with or without adverse selection
+  control.py      exact CARA-optimal quotes by backward induction (optimal_policy)
   stats.py        standard errors, paired differences, CARA certainty equivalent
   empirical.py    real data: load Binance aggTrades, per-second view, fill-curve calibration, backtest, adverse moves
 tests/            unit tests (run by CI on every push)
-scripts/          download_binance.py: fetches the trade archives used by notebook 03 into data/ (not tracked)
+scripts/          download_binance.py: fetches the trade archives used by notebooks 03 and 04 into data/ (not tracked)
 figures/          figures exported from the notebooks
 01_replication.ipynb         replication experiments, figures and discussion
 02_adverse_selection.ipynb   adverse selection: what it costs the paper's strategies, and how to respond
 03_real_data.ipynb           the model against a week of real BTC and ETH trades
+04_optimal_quotes.ipynb      exact optimal quotes: how far A-S is from them, the best response to adverse selection, and a real-data test
 ```
 
 ## Getting started
@@ -99,20 +113,23 @@ figures/          figures exported from the notebooks
 ```
 pip install -r requirements.txt
 pytest -q
-python scripts/download_binance.py BTCUSDT ETHUSDT --start 2026-09-23 --end 2026-09-29   # data for notebook 03, about 150 MB
+python scripts/download_binance.py BTCUSDT ETHUSDT --start 2026-09-23 --end 2026-09-29   # data for notebooks 03 and 04, about 150 MB
 jupyter notebook
 ```
 
 ## Usage
 
 ```python
-from mmsim import Params, AvellanedaStoikov, Symmetric, simulate, draw_randomness
+from mmsim import Params, AvellanedaStoikov, Symmetric, simulate, draw_randomness, exact_moments, optimal_policy
 
 p = Params()
 rnd = draw_randomness(p, n_paths=1000, seed=0)          # both strategies share the same random numbers
 inv = simulate(AvellanedaStoikov(gamma=0.1), p, 1000, randomness=rnd)
 sym = simulate(Symmetric.matching(0.1, p), p, 1000, randomness=rnd)
 print(inv.pnl.mean(), inv.pnl.std(), sym.pnl.mean(), sym.pnl.std())
+
+policy, ce = optimal_policy(p, gamma=0.1)                # exact optimal quotes and their certainty equivalent
+print(ce, exact_moments(AvellanedaStoikov(0.1), p, gamma_ce=0.1)["ce"])
 ```
 
 ## References
