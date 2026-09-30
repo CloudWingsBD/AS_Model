@@ -64,6 +64,37 @@ class AdjustedAS:
 
 
 @dataclass(frozen=True)
+class GLFT:
+    """Closed-form approximation of the optimal quotes for a long horizon (Gueant, Lehalle & Fernandez-Tapia 2013):
+    delta_b = ln(1 + gamma/k)/gamma + (2q + 1)/2 * c,  delta_a = ln(1 + gamma/k)/gamma - (2q - 1)/2 * c,
+    with c = sqrt(sigma^2 gamma / (2 k A) * (1 + gamma/k)^(1 + k/gamma)). Unlike A-S it does not depend on T - t."""
+    gamma: float
+    name: str = "GLFT"
+
+    def quote(self, s, q, i, p):
+        g = self.gamma
+        c = np.sqrt(p.sigma**2 * g / (2 * p.k * p.A) * (1 + g / p.k) ** (1 + p.k / g))
+        base = np.log1p(g / p.k) / g
+        bid, ask = s - base - (2 * q + 1) / 2 * c, s + base - (2 * q - 1) / 2 * c
+        return (bid + ask) / 2, bid, ask
+
+
+class TablePolicy:
+    """Quotes looked up from tables of distances, delta_a[i, q + n] and delta_b[i, q + n] for integer |q| <= n
+    (e.g. the optimal policy from mmsim.control.optimal_policy)."""
+    name = "optimal"
+
+    def __init__(self, delta_a: np.ndarray, delta_b: np.ndarray):
+        self.delta_a, self.delta_b = delta_a, delta_b
+        self.n = (delta_a.shape[1] - 1) // 2
+
+    def quote(self, s, q, i, p):
+        j = np.clip(np.rint(q).astype(int) + self.n, 0, 2 * self.n)
+        da, db = self.delta_a[i, j], self.delta_b[i, j]
+        return s + (da - db) / 2, s - db, s + da
+
+
+@dataclass(frozen=True)
 class Symmetric:
     """Benchmark: constant spread centred on the mid, ignoring inventory."""
     spread: float
