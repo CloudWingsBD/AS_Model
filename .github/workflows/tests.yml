@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
-        # mmsim and the tests only need numpy; pandas, matplotlib and jupyter are for the notebook
-        run: python -m pip install "numpy>=1.24" "pytest>=7.0"
+        # mmsim needs numpy, and mmsim.empirical also pandas; matplotlib and jupyter are only for the notebooks
+        run: python -m pip install "numpy>=1.24" "pandas>=2.0" "pytest>=7.0"
       - name: Run tests
         run: python -m pytest -q
