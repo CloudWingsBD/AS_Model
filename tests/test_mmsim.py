@@ -1,17 +1,19 @@
 import numpy as np
 import pytest
 
-from mmsim import (Params, AvellanedaStoikov, Symmetric, simulate, draw_randomness,
+from mmsim import (Params, AvellanedaStoikov, AdjustedAS, Symmetric, simulate, draw_randomness,
                    symmetric_moments, symmetric_moments_continuous, average_as_spread, paired_diff)
 
 P = Params()
 
 
+@pytest.mark.parametrize("impact", [0.0, 0.3])
 @pytest.mark.parametrize("gamma", [0.01, 0.1, 1.0])
 @pytest.mark.parametrize("which", ["inventory", "symmetric"])
-def test_pnl_decomposition_is_exact(gamma, which):
+def test_pnl_decomposition_is_exact(gamma, which, impact):
+    p = P.with_(impact=impact)
     strat = AvellanedaStoikov(gamma) if which == "inventory" else Symmetric.matching(gamma, P)
-    r = simulate(strat, P, n_paths=500, seed=1)
+    r = simulate(strat, p, n_paths=500, seed=1)
     np.testing.assert_allclose(r.pnl, r.spread_pnl + r.inventory_pnl, atol=1e-8)
 
 
@@ -116,7 +118,7 @@ def brute_force(strategy, p, gamma):
         w *= np.where(sold, pa, 1 - pa) * np.where(bought, pb, 1 - pb) * 0.5
         x += sold * ask - bought * bid
         q += bought.astype(float) - sold
-        s += np.where(up == 1, sdt, -sdt)
+        s += np.where(up == 1, sdt, -sdt) + p.impact * (sold.astype(float) - bought)
     pnl = x + q * s
     mean = np.sum(w * pnl)
     var = np.sum(w * (pnl - mean) ** 2)
@@ -126,11 +128,14 @@ def brute_force(strategy, p, gamma):
     return mean, np.sqrt(var), kurt, ce, q_dist
 
 
+@pytest.mark.parametrize("impact", [0.0, 0.3])
 @pytest.mark.parametrize("gamma", [0.1, 1.0, 3.0])
-@pytest.mark.parametrize("which", ["inventory", "symmetric"])
-def test_dp_matches_brute_force_enumeration(gamma, which):
-    p = Params(T=0.6, dt=0.1, sigma=2.0, A=6.0, k=1.5)   # 6 steps, large fill probs, clipping when |q| is large
-    strat = AvellanedaStoikov(gamma) if which == "inventory" else Symmetric.matching(gamma, p)
+@pytest.mark.parametrize("which", ["inventory", "symmetric", "adjusted"])
+def test_dp_matches_brute_force_enumeration(gamma, which, impact):
+    # 6 steps, large fill probs, clipping when |q| is large
+    p = Params(T=0.6, dt=0.1, sigma=2.0, A=6.0, k=1.5, impact=impact)
+    strat = {"inventory": AvellanedaStoikov(gamma), "symmetric": Symmetric.matching(gamma, p),
+             "adjusted": AdjustedAS.frozen_inventory(gamma, impact)}[which]
     ex = exact_moments(strat, p, gamma_ce=gamma)
     mean, sd, kurt, ce, q_dist = brute_force(strat, p, gamma)
     assert ex["mean_pnl"] == pytest.approx(mean, abs=1e-9)
@@ -160,3 +165,64 @@ def test_dp_matches_monte_carlo_for_inventory(gamma):
     assert abs(r.pnl.std() - ex["std_pnl"]) < 4 * se["std_pnl"]
     assert abs(r.q.std() - ex["std_q"]) < 4 * se["std_q"]
     assert abs(r.n_trades.mean() - ex["mean_trades"]) < 0.2
+
+
+# ---------- adverse selection: each fill moves the mid by p.impact in the trade's direction ----------
+
+
+def single_fill_steps(r, n_paths, n_steps):
+    """Number of steps with exactly one fill, per path, from the trade log."""
+    tr = r.trades
+    per_step = np.bincount(tr["path"] * n_steps + tr["step"], minlength=n_paths * n_steps)
+    return (per_step.reshape(n_paths, n_steps) == 1).sum(axis=1)
+
+
+@pytest.mark.parametrize("which", ["inventory", "symmetric", "adjusted"])
+def test_impact_cost_identity(which):
+    """sum_i q_{i+1} * eps * (sold_i - bought_i) = -(eps/2) * (#single-fill steps + q_T^2), path by path."""
+    eps, n = 0.3, 300
+    p = P.with_(impact=eps)
+    strat = {"inventory": AvellanedaStoikov(0.1), "symmetric": Symmetric.matching(0.1, P),
+             "adjusted": AdjustedAS.frozen_inventory(0.1, eps)}[which]
+    r = simulate(strat, p, n_paths=n, seed=2, log_trades=True)
+    np.testing.assert_allclose(r.impact_pnl, -eps / 2 * (single_fill_steps(r, n, p.n_steps) + r.q**2), atol=1e-8)
+
+
+def test_impact_only_adds_the_impact_term():
+    """Quotes are set relative to the mid, so fills do not depend on eps: under common random numbers the PnL
+    with impact equals the PnL without it plus impact_pnl, path by path."""
+    rnd = draw_randomness(P, 300, seed=3)
+    a = simulate(AvellanedaStoikov(0.1), P, 300, randomness=rnd)
+    b = simulate(AvellanedaStoikov(0.1), P.with_(impact=0.3), 300, randomness=rnd)
+    np.testing.assert_array_equal(a.q, b.q)
+    np.testing.assert_array_equal(a.n_trades, b.n_trades)
+    np.testing.assert_allclose(b.pnl - a.pnl, b.impact_pnl, atol=1e-8)
+    assert np.all(a.impact_pnl == 0)
+
+
+def test_adjusted_as_reduces_to_as_without_adjustment():
+    s, q = np.full(5, 100.0), np.arange(-2.0, 3.0)
+    for strat in [AdjustedAS(0.1), AdjustedAS.frozen_inventory(0.1, 0.0)]:
+        for i in [0, 100, 199]:
+            for got, want in zip(strat.quote(s, q, i, P), AvellanedaStoikov(0.1).quote(s, q, i, P)):
+                np.testing.assert_allclose(got, want)
+
+
+@pytest.mark.parametrize("which", ["inventory", "adjusted"])
+def test_dp_matches_monte_carlo_with_impact(which):
+    eps = 0.25
+    p = P.with_(impact=eps)
+    strat = AvellanedaStoikov(0.1) if which == "inventory" else AdjustedAS.frozen_inventory(0.1, eps)
+    ex = exact_moments(strat, p, gamma_ce=0.1)
+    n = 40000
+    r = simulate(strat, p, n_paths=n, seed=31)
+    se = sampling_se(ex, n)
+    assert abs(r.pnl.mean() - ex["mean_pnl"]) < 4 * se["mean_pnl"]
+    assert abs(r.pnl.std() - ex["std_pnl"]) < 4 * se["std_pnl"]
+    assert abs(r.q.std() - ex["std_q"]) < 4 * se["std_q"]
+
+
+def test_closed_forms_reject_impact():
+    for f in [symmetric_moments, symmetric_moments_continuous]:
+        with pytest.raises(ValueError):
+            f(1.49, P.with_(impact=0.1))

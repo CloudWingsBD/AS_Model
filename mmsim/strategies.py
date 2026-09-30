@@ -41,6 +41,29 @@ class AvellanedaStoikov:
 
 
 @dataclass(frozen=True)
+class AdjustedAS:
+    """A-S with each side widened by `widen` and the centre moved by an extra -q*skew (the defaults give plain A-S).
+    Used to respond to adverse selection, i.e. fill-triggered mid moves of size eps (Params.impact)."""
+    gamma: float
+    widen: float = 0.0
+    skew: float = 0.0
+    name: str = "adjusted"
+
+    @classmethod
+    def frozen_inventory(cls, gamma: float, eps: float) -> "AdjustedAS":
+        """Adjustment implied by the frozen-inventory indifference prices under impact eps,
+        r^a = s + eps*(1 - q) + gamma*sigma^2*(T-t)*(1 - 2q)/2 and r^b = s - eps*(1 + q) - gamma*sigma^2*(T-t)*(1 + 2q)/2:
+        widen each side by eps and skew by an extra -q*eps."""
+        return cls(gamma, widen=eps, skew=eps)
+
+    def quote(self, s, q, i, p):
+        tau = p.tau(i)
+        r = s - q * (self.gamma * p.sigma**2 * tau + self.skew)
+        half = as_spread(self.gamma, tau, p.sigma, p.k) / 2 + self.widen
+        return r, r - half, r + half
+
+
+@dataclass(frozen=True)
 class Symmetric:
     """Benchmark: constant spread centred on the mid, ignoring inventory."""
     spread: float

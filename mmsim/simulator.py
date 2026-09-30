@@ -15,6 +15,7 @@ class SimResult:
     n_trades: np.ndarray       # number of fills per path
     spread_pnl: np.ndarray     # sum over fills of the edge vs the mid at quote time
     inventory_pnl: np.ndarray  # sum_i q_{i+1} * dS_i (PnL from holding inventory while the mid moves)
+    impact_pnl: np.ndarray     # part of inventory_pnl caused by fill-triggered mid moves (zero when p.impact == 0)
     clip_frac: float           # share of (path, step, side) where A*exp(-k*delta)*dt > 1 and was clipped
     both_fill_frac: float      # share of (path, step) where bid and ask both filled
     t: Optional[np.ndarray] = None
@@ -43,8 +44,10 @@ def simulate(strategy: Strategy, p: Params = Params(), n_paths: int = 1000, seed
     """
     Each step i: the strategy quotes (bid, ask) given (s_i, q_i); the ask fills with prob A*exp(-k*delta_a)*dt,
     the bid with prob A*exp(-k*delta_b)*dt (independently, clipped to [0, 1]); fills execute at the quoted
-    prices; then the mid moves by dS_i. Terminal inventory is marked at the mid.
-    Same seed (or same `randomness`) => same price path and same fill uniforms for every strategy.
+    prices; then the mid moves by dS_i, plus p.impact * (sold - bought) (adverse selection: a filled ask means
+    a buyer, and the mid moves up). Terminal inventory is marked at the mid.
+    Same seed (or same `randomness`) => same mid increments dS and same fill uniforms for every strategy
+    (with p.impact > 0 the mid path itself also depends on the strategy's fills).
     """
     rnd = randomness if randomness is not None else draw_randomness(p, n_paths, seed)
     n = p.n_steps
@@ -54,6 +57,7 @@ def simulate(strategy: Strategy, p: Params = Params(), n_paths: int = 1000, seed
     n_trades = np.zeros(n_paths)
     spread_pnl = np.zeros(n_paths)
     inventory_pnl = np.zeros(n_paths)
+    impact_pnl = np.zeros(n_paths)
     n_clipped = 0
     n_both = 0
 
@@ -91,11 +95,13 @@ def simulate(strategy: Strategy, p: Params = Params(), n_paths: int = 1000, seed
         x += sold * ask - bought * bid
         q = q - sold + bought
         n_trades += sold.astype(float) + bought
-        inventory_pnl += q * rnd["dS"][i]
-        s = s + rnd["dS"][i]
+        jump = p.impact * (sold.astype(float) - bought)
+        impact_pnl += q * jump
+        inventory_pnl += q * (rnd["dS"][i] + jump)
+        s = s + rnd["dS"][i] + jump
 
     out = SimResult(pnl=x + q * s, q=q, n_trades=n_trades, spread_pnl=spread_pnl,
-                    inventory_pnl=inventory_pnl, clip_frac=n_clipped / (2 * n * n_paths),
+                    inventory_pnl=inventory_pnl, impact_pnl=impact_pnl, clip_frac=n_clipped / (2 * n * n_paths),
                     both_fill_frac=n_both / (n * n_paths))
     if record:
         rec["s"][-1], rec["q"][-1] = s, q

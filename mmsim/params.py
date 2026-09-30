@@ -13,6 +13,7 @@ class Params:
     k: float = 1.5          # fill-intensity decay: lambda(delta) = A * exp(-k * delta)
     A: float = 140.0        # fill-intensity level
     noise: str = "binomial"  # mid increments: "binomial" (+/- sigma*sqrt(dt), as in the paper) or "gaussian"
+    impact: float = 0.0     # adverse selection: each fill moves the mid by this much in the trade's direction
 
     @property
     def n_steps(self) -> int:

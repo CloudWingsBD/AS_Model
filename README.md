@@ -30,18 +30,29 @@ Published values vs exact values:
 
 The full analysis, more figures and the derivations are in [`01_replication.ipynb`](01_replication.ipynb).
 
+### Extension: adverse selection
+
+[`02_adverse_selection.ipynb`](02_adverse_selection.ipynb) makes fills informative: each fill moves the mid permanently by ε in the direction of the trade (`Params(impact=ε)`), and the exact dynamic program is extended to match.
+
+- **An exact accounting identity.** On every path the PnL caused by these moves is −(ε/2)(N₁ + q_T²), where N₁ is the number of steps with exactly one fill: each fill costs ε/2, and only terminal inventory is penalised.
+- **Inventory control halves the cost.** As dt → 0 the symmetric strategy pays ε per fill and A-S about 0.55ε. At γ = 0.1, A-S overtakes the symmetric strategy on mean profit once ε > 0.12.
+- **The textbook adjustment over-reacts.** Widening by ε and skewing by an extra qε (frozen-inventory indifference prices) is worse than not adjusting at all (certainty equivalent 48.6 vs 52.4 at ε = 0.25). The best adjustment on a grid is small and gains little.
+
+![Mean and standard deviation of terminal PnL as the adverse move per fill grows](figures/adverse_selection.png)
+
 ## Layout
 
 ```
 mmsim/            simulator package
-  params.py       Params dataclass (defaults are the paper's parameters)
-  strategies.py   AvellanedaStoikov, Symmetric; a new strategy implements quote(s, q, i, p) -> (centre, bid, ask)
+  params.py       Params dataclass (defaults are the paper's parameters; impact adds adverse selection)
+  strategies.py   AvellanedaStoikov, Symmetric, AdjustedAS; a new strategy implements quote(s, q, i, p) -> (centre, bid, ask)
   simulator.py    vectorised Monte Carlo: common random numbers, PnL decomposition, per-fill trade log, discretisation diagnostics
-  analytics.py    exact solutions: closed-form moments of the symmetric strategy; exact moments, kurtosis, CARA CE and inventory distribution of any (q, t) strategy by dynamic programming
+  analytics.py    exact solutions: closed-form moments of the symmetric strategy; exact moments, kurtosis, CARA CE and inventory distribution of any (q, t) strategy by dynamic programming, with or without adverse selection
   stats.py        standard errors, paired differences, CARA certainty equivalent
 tests/            unit tests (run by CI on every push)
-figures/          README figure, exported from the notebook
-01_replication.ipynb   replication experiments, figures and discussion
+figures/          README figures, exported from the notebooks
+01_replication.ipynb         replication experiments, figures and discussion
+02_adverse_selection.ipynb   adverse selection: what it costs the paper's strategies, and how to respond
 ```
 
 ## Running
