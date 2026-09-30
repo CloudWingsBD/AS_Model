@@ -20,6 +20,9 @@ htmlcov/
 # Jupyter
 .ipynb_checkpoints/
 
+# Downloaded market data (re-fetch with scripts/download_binance.py)
+data/
+
 # OS / editors
 .DS_Store
 .idea/

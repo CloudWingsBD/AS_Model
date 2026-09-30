@@ -3,7 +3,7 @@
 [![tests](https://github.com/CloudWingsBD/AS_Model/actions/workflows/tests.yml/badge.svg)](https://github.com/CloudWingsBD/AS_Model/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A replication of Avellaneda & Stoikov (2008), *High-frequency trading in a limit order book*, Quantitative Finance 8(3). It pairs a vectorised Monte Carlo simulator with an exact dynamic-programming solution of the paper's discrete model, which is used to validate both the simulator and the paper's tables.
+A replication of Avellaneda & Stoikov (2008), *High-frequency trading in a limit order book*, Quantitative Finance 8(3). It pairs a vectorised Monte Carlo simulator with an exact dynamic-programming solution of the paper's discrete model, which is used to validate both the simulator and the paper's tables. The model is then extended with adverse selection (notebook 02) and tested against a week of real BTC and ETH trades (notebook 03).
 
 ## Results
 
@@ -40,6 +40,17 @@ The full analysis, more figures and the derivations are in [`01_replication.ipyn
 
 ![Mean and standard deviation of terminal PnL as the adverse move per fill grows](figures/adverse_selection.png)
 
+### Real data: BTC and ETH on Binance
+
+[`03_real_data.ipynb`](03_real_data.ipynb) calibrates the model on a week of Binance spot trades (BTCUSDT and ETHUSDT, 23–29 September 2026). It then compares the model's predictions with a backtest of the same strategies against the real order flow, re-quoting once a second in 10-minute episodes.
+
+- **The fill model works.** The exponential fill curve fits the data, and the number of fills is predicted to within 11% on every day.
+- **The paper's profit prediction fails.** It predicts a profit every day, while the backtest loses money every day. After a fill the price moves permanently against the market maker, by about $16 for BTC and $0.55 for ETH: two to three times the spread earned.
+- **Every fill costs one full ε, for both strategies.** Inventory control does not cut the adverse-selection cost, as notebook 02's single-dealer model assumed it would. Charging ε per fill predicts mean PnL to within about one standard error.
+- **Risk is understated, and forecasts need frequent recalibration.** The model predicts 37–72% of the actual PnL standard deviation. Calibrating on the previous hour gives a 0.5–0.6 correlation with the next hour's PnL, against about zero when calibrating on the previous day.
+
+![Predicted vs backtested mean PnL per day for three versions of the model](figures/real_data_predictions.png)
+
 ## Layout
 
 ```
@@ -49,10 +60,13 @@ mmsim/            simulator package
   simulator.py    vectorised Monte Carlo: common random numbers, PnL decomposition, per-fill trade log, discretisation diagnostics
   analytics.py    exact solutions: closed-form moments of the symmetric strategy; exact moments, kurtosis, CARA CE and inventory distribution of any (q, t) strategy by dynamic programming, with or without adverse selection
   stats.py        standard errors, paired differences, CARA certainty equivalent
+  empirical.py    real data: load Binance aggTrades, per-second view, fill-curve calibration, backtest, adverse moves
 tests/            unit tests (run by CI on every push)
+scripts/          download_binance.py: fetches the trade archives used by notebook 03 into data/ (not tracked)
 figures/          README figures, exported from the notebooks
 01_replication.ipynb         replication experiments, figures and discussion
 02_adverse_selection.ipynb   adverse selection: what it costs the paper's strategies, and how to respond
+03_real_data.ipynb           the model against a week of real BTC and ETH trades
 ```
 
 ## Running
@@ -60,7 +74,8 @@ figures/          README figures, exported from the notebooks
 ```
 pip install -r requirements.txt
 pytest -q
-jupyter notebook 01_replication.ipynb
+python scripts/download_binance.py BTCUSDT ETHUSDT --start 2026-09-23 --end 2026-09-29   # data for notebook 03, about 150 MB
+jupyter notebook
 ```
 
 ## Usage
