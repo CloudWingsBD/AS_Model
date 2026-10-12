@@ -48,6 +48,7 @@ The full analysis, more figures and the derivations are in [`01_replication.ipyn
 - **The paper's profit prediction fails.** It predicts a profit every day, while the backtest loses money every day. After a fill the price moves permanently against the market maker, by about $16 for BTC and $0.55 for ETH: two to three times the spread earned.
 - **Every fill costs one full ε, for both strategies.** Inventory control does not cut the adverse-selection cost, as notebook 02's single-dealer model assumed it would. Charging ε per fill predicts mean PnL to within about one standard error.
 - **Risk is understated, and forecasts need frequent recalibration.** The model predicts 37–72% of the actual PnL standard deviation. Calibrating on the previous hour gives a 0.5–0.6 correlation with the next hour's PnL, against about zero when calibrating on the previous day.
+- **Widening the quotes loses less, but only by trading less.** The move after a fill grows one for one with the quote distance, so no distance breaks even. Notebook 02's widening by the measured ε cuts the loss per episode by about 93% by trading 11–15 times less often, and its extra skew lowers the risk but loses more. Every version still loses on every day.
 
 ![Predicted vs backtested mean PnL per day for three versions of the model](figures/real_data_predictions.png)
 
