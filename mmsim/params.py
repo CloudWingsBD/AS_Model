@@ -14,6 +14,7 @@ class Params:
     A: float = 140.0        # fill-intensity level
     noise: str = "binomial"  # mid increments: "binomial" (+/- sigma*sqrt(dt), as in the paper) or "gaussian"
     impact: float = 0.0     # adverse selection: each fill moves the mid by this much in the trade's direction
+    fill_cost: float = 0.0  # adverse selection charged on every fill, as when all order flow moves the mid (notebook 03)
 
     @property
     def n_steps(self) -> int:
