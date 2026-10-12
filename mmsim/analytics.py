@@ -1,4 +1,4 @@
-"""Closed-form moments used to validate the simulator."""
+"""Exact results: closed-form moments of the symmetric strategy, and exact moments of any (q, t) strategy by dynamic programming."""
 import numpy as np
 
 from .params import Params
@@ -15,8 +15,8 @@ def symmetric_moments(spread: float, p: Params) -> dict:
       Var(inventory_pnl)= sigma^2 dt * sum_i E[q_{i+1}^2] = sigma^2 dt * v * n(n+1)/2
       Cov(spread_pnl, inventory_pnl) = 0     (each dS_i has mean zero and is independent of all fills)
     """
-    if p.impact:
-        raise ValueError("closed form assumes no adverse selection (p.impact == 0); use exact_moments")
+    if p.impact or p.fill_cost:
+        raise ValueError("closed form assumes no adverse selection (impact = fill_cost = 0); use exact_moments")
     d = spread / 2
     lam = p.A * np.exp(-p.k * d) * p.dt
     if lam > 1:
@@ -36,8 +36,8 @@ def symmetric_moments_continuous(spread: float, p: Params) -> dict:
       E[PnL] = 2 L T d,  Var(q_T) = 2 L T,  Var(spread_pnl) = 2 L T d^2,  Var(inventory_pnl) = sigma^2 L T^2.
     The discrete Bernoulli model has an extra (1 - lam) factor in every variance, so it understates risk at finite dt.
     """
-    if p.impact:
-        raise ValueError("closed form assumes no adverse selection (p.impact == 0); use exact_moments")
+    if p.impact or p.fill_cost:
+        raise ValueError("closed form assumes no adverse selection (impact = fill_cost = 0); use exact_moments")
     d = spread / 2
     L = p.A * np.exp(-p.k * d)
     var_spread = 2 * L * p.T * d**2
@@ -65,6 +65,7 @@ def exact_moments(strategy, p: Params, gamma_ce: float = None) -> dict:
     With adverse selection (p.impact = eps > 0) each fill also moves the mid by eps in the trade's direction.
     That jump is known once the step's fill outcome is known, so it is folded into the edge:
         e = sold * delta_a + bought * delta_b + q' * eps * (sold - bought).
+    A per-fill cost c (p.fill_cost) simply lowers the edge by c for each fill.
     """
     from math import comb
 
@@ -108,7 +109,7 @@ def exact_moments(strategy, p: Params, gamma_ce: float = None) -> dict:
             terms = []
             for pr, e, sh, cnt in offsets(i):
                 qn = qs + sh
-                e = e - p.impact * sh * qn   # fill-triggered mid move: sold - bought = -sh
+                e = e - p.impact * sh * qn - p.fill_cost * cnt   # mid move after fills (sold - bought = -sh), per-fill cost
                 mu_next = [at(mu[l], sh) for l in range(K + 1)]
                 # E[(e + R')^r] for r = 0..K
                 c_mom = [sum(comb(r, l) * e ** (r - l) * mu_next[l] for l in range(r + 1)) for r in range(K + 1)]
