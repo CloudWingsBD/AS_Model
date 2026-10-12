@@ -73,7 +73,10 @@ def backtest(strategy, sec: Seconds, p: Params, tick: float = 0.01, log_trades: 
     n = p.n_steps
     m = len(sec.s) // n
     view = lambda a: a[: m * n].reshape(m, n).T      # (step, episode)
-    S, S_end, HI, LO = view(sec.s), view(sec.s_end), view(sec.hi), view(sec.lo)
+    S, S_end = view(sec.s), view(sec.s_end)
+    # Trades and quotes are compared in ticks: ticks * tick is not always the float parsed from the same decimal price
+    # (8400004 * 0.01 > 84000.04), so comparing prices would miss trades printed exactly at the quote.
+    HI, LO = view(np.round(sec.hi / tick, 6)), view(np.round(sec.lo / tick, 6))
     q, x = np.zeros(m), np.zeros(m)
     n_trades, spread_pnl, inventory_pnl = np.zeros(m), np.zeros(m), np.zeros(m)
     n_both = 0
@@ -84,9 +87,10 @@ def backtest(strategy, sec: Seconds, p: Params, tick: float = 0.01, log_trades: 
         for i in range(n):
             s = S[i]
             _, bid, ask = strategy.quote(s, q, i, p)
-            ask = np.ceil(np.round(ask / tick, 6)) * tick * np.ones(m)
-            bid = np.floor(np.round(bid / tick, 6)) * tick * np.ones(m)
-            sold, bought = HI[i] >= ask, LO[i] <= bid
+            ask_ticks = np.ceil(np.round(ask / tick, 6)) * np.ones(m)
+            bid_ticks = np.floor(np.round(bid / tick, 6)) * np.ones(m)
+            sold, bought = HI[i] >= ask_ticks, LO[i] <= bid_ticks
+            ask, bid = ask_ticks * tick, bid_ticks * tick
             n_both += int((sold & bought).sum())
             if log_trades:
                 for mask, side, price in [(sold, -1, ask), (bought, +1, bid)]:
