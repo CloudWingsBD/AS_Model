@@ -3,7 +3,8 @@ import pandas as pd
 import pytest
 
 from mmsim import Params, AvellanedaStoikov, Symmetric, exact_moments, sampling_se
-from mmsim.empirical import Seconds, to_seconds, fill_probability, fit_intensity, backtest, adverse_move
+from mmsim.empirical import (Seconds, to_seconds, fill_probability, fit_intensity, backtest, adverse_move,
+                             adverse_move_curve)
 
 P = Params(s0=1000.0, T=600, dt=1.0, sigma=2.0, A=0.2, k=0.5, noise="gaussian")
 
@@ -78,6 +79,43 @@ def test_no_adverse_move_on_uninformative_fills():
     for h in [1, 60]:
         move = adverse_move(sec, r.trades, P.n_steps, h)
         assert abs(move) < 4 * P.sigma * np.sqrt(h) / np.sqrt(r.trades["side"].size)
+
+
+def test_adverse_move_curve_by_hand():
+    s_end = np.array([101.0, 103.0, 102.0, 100.0])
+    sec = Seconds(s=np.r_[100.0, s_end[:-1]], s_end=s_end, hi=np.array([102.0, 102.0, 104.0, np.nan]),
+                  lo=np.array([99.0, 100.0, np.nan, 99.0]))
+    # prices at the start of seconds 0..4 are 100, 101, 103, 102, 100; with h = 2 only seconds 0..2 count,
+    # and their moves are +3, +1, -3
+    pa, pb = adverse_move_curve(sec, [1.0, 2.0], h=2)
+    np.testing.assert_allclose(pa, [1 / 3, 3.0])        # delta = 1: seconds 0, 1, 2; delta = 2: second 0
+    np.testing.assert_allclose(pb, [-2.0, np.nan])      # delta = 1: seconds 0, 1; delta = 2: none
+
+
+def test_adverse_move_curve_zero_on_uninformative_data():
+    sec = synthetic_seconds(P, 200_000, seed=6)
+    deltas = np.array([0.5, 2.0, 5.0])
+    for h in [1, 60]:
+        for move, prob in zip(adverse_move_curve(sec, deltas, h), fill_probability(sec, deltas)):
+            # overlapping h-second windows inflate the variance of the mean by about 1 + h * prob
+            se = P.sigma * np.sqrt(h * (1 + h * prob) / (prob * sec.s.size))
+            assert np.all(np.abs(move) < 4 * se)
+
+
+def test_backtest_clip_keeps_quotes_passive():
+    sec = synthetic_seconds(P, 20 * 600, seed=7)
+    r = backtest(Symmetric(spread=-4.0), sec, P, log_trades=True, clip=True)    # ask 2 below the price, bid 2 above
+    assert r.clip_frac == 1.0
+    edge = r.trades["side"] * (r.trades["mid"] - r.trades["price"])          # > 0: sold above or bought below s
+    assert edge.size > 0 and np.all(edge > 0)
+    np.testing.assert_allclose(r.pnl, r.spread_pnl + r.inventory_pnl, atol=1e-6)
+
+
+def test_backtest_clip_changes_nothing_when_quotes_do_not_cross():
+    sec = synthetic_seconds(P, 20 * 600, seed=8)
+    plain, clipped = (backtest(Symmetric(spread=4.0), sec, P, clip=c) for c in [False, True])
+    assert clipped.clip_frac == 0.0 and np.isnan(plain.clip_frac)
+    np.testing.assert_array_equal(plain.pnl, clipped.pnl)
 
 
 def test_backtest_requires_one_second_steps():

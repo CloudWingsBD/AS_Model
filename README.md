@@ -75,6 +75,7 @@ The model is calibrated on a week of Binance spot trades (BTCUSDT and ETHUSDT, 2
 - **The paper's profit prediction fails.** It predicts a profit every day, while the backtest loses money every day, because of the adverse selection described above.
 - **Every fill costs one full ε, for both strategies.** Inventory control does not cut the adverse-selection cost, contrary to notebook 02's single-dealer model. Charging ε per fill (`Params(fill_cost=ε)`) predicts mean PnL to within about one standard error.
 - **Risk is understated, and forecasts need frequent recalibration.** The model predicts 37–72% of the actual PnL standard deviation. Calibrating on the previous hour gives a 0.5–0.6 correlation with the next hour's PnL, against about zero when calibrating on the previous day.
+- **Widening the quotes loses less, but only by trading less.** The move after a fill grows one for one with the quote distance, so no distance breaks even. Notebook 02's widening by the measured ε cuts the loss per episode by about 93% by trading 11–15 times less often, and its extra skew lowers the risk but loses more. Every version still loses on every day.
 
 ![Predicted vs backtested mean PnL per day for three versions of the model](figures/real_data_predictions.png)
 

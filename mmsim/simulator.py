@@ -17,6 +17,7 @@ class SimResult:
     inventory_pnl: np.ndarray  # sum_i q_{i+1} * dS_i (PnL from holding inventory while the mid moves)
     impact_pnl: np.ndarray     # part of inventory_pnl caused by fill-triggered mid moves (zero when p.impact == 0)
     clip_frac: float           # share of (path, step, side) where A*exp(-k*delta)*dt > 1 and was clipped
+                               # (backtest with clip=True: where a quote would have crossed the price)
     both_fill_frac: float      # share of (path, step) where bid and ask both filled
     t: Optional[np.ndarray] = None
     paths: Optional[Dict[str, np.ndarray]] = None   # (n_steps+1, n_paths) arrays, if record=True

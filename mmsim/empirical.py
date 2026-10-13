@@ -59,13 +59,17 @@ def fit_intensity(deltas, prob, p_min=1e-3, p_max=0.5):
     return float(np.exp(intercept)), float(-slope)
 
 
-def backtest(strategy, sec: Seconds, p: Params, tick: float = 0.01, log_trades: bool = False) -> SimResult:
+def backtest(strategy, sec: Seconds, p: Params, tick: float = 0.01, log_trades: bool = False,
+             clip: bool = False) -> SimResult:
     """
     Run `strategy` on consecutive episodes of p.n_steps seconds of real data (p.dt must be 1). Each second it quotes
     from the price at the start of the second and its inventory, with the ask rounded up and the bid rounded down
     to the tick. The ask is filled (one unit, at the quoted price) if an aggressive buy prints at or above it during
     the second, the bid if an aggressive sell prints at or below it. Inventory is marked at the last price of each
     episode. Our orders are assumed not to move the market, and queue position is ignored.
+    With clip=True a quote that would cross the price (an ask at or below s, or a bid at or above it, as a large
+    inventory skew can produce) is moved to one tick from s, so that every order stays passive; clip_frac is then
+    the share of (episode, step, side) where this happened.
     The accounting matches `simulate`: pnl = spread_pnl + inventory_pnl on every episode.
     """
     if p.dt != 1:
@@ -79,7 +83,7 @@ def backtest(strategy, sec: Seconds, p: Params, tick: float = 0.01, log_trades: 
     HI, LO = view(np.round(sec.hi / tick, 6)), view(np.round(sec.lo / tick, 6))
     q, x = np.zeros(m), np.zeros(m)
     n_trades, spread_pnl, inventory_pnl = np.zeros(m), np.zeros(m), np.zeros(m)
-    n_both = 0
+    n_both, n_clipped = 0, 0
     if log_trades:
         log = {kk: [] for kk in ["path", "step", "side", "price", "mid", "q_before"]}
 
@@ -89,6 +93,10 @@ def backtest(strategy, sec: Seconds, p: Params, tick: float = 0.01, log_trades: 
             _, bid, ask = strategy.quote(s, q, i, p)
             ask_ticks = np.ceil(np.round(ask / tick, 6)) * np.ones(m)
             bid_ticks = np.floor(np.round(bid / tick, 6)) * np.ones(m)
+            if clip:
+                st = np.round(s / tick)
+                n_clipped += int((ask_ticks <= st).sum() + (bid_ticks >= st).sum())
+                ask_ticks, bid_ticks = np.maximum(ask_ticks, st + 1), np.minimum(bid_ticks, st - 1)
             sold, bought = HI[i] >= ask_ticks, LO[i] <= bid_ticks
             ask, bid = ask_ticks * tick, bid_ticks * tick
             n_both += int((sold & bought).sum())
@@ -108,8 +116,8 @@ def backtest(strategy, sec: Seconds, p: Params, tick: float = 0.01, log_trades: 
             inventory_pnl += q * (S_end[i] - s)
 
     out = SimResult(pnl=x + q * S_end[-1], q=q, n_trades=n_trades, spread_pnl=spread_pnl,
-                    inventory_pnl=inventory_pnl, impact_pnl=np.zeros(m), clip_frac=np.nan,
-                    both_fill_frac=n_both / (n * m))
+                    inventory_pnl=inventory_pnl, impact_pnl=np.zeros(m),
+                    clip_frac=n_clipped / (2 * n * m) if clip else np.nan, both_fill_frac=n_both / (n * m))
     if log_trades:
         out.trades = {kk: np.concatenate(v) for kk, v in log.items()}
     return out
@@ -122,3 +130,17 @@ def adverse_move(sec: Seconds, trades: dict, n_steps: int, h: int) -> float:
     price_at = np.r_[sec.s, sec.s_end[-1]]           # price at the start of second j, j = 0..n
     ok = t + h < price_at.size
     return float(np.mean(-trades["side"][ok] * (price_at[t[ok] + h] - price_at[t[ok]])))
+
+
+def adverse_move_curve(sec: Seconds, deltas, h: int):
+    """The same move for a quote at each distance delta from s, measured from the trades without a strategy: the
+    mean move against the quote over the h seconds after the start of each second in which it is reached (up for
+    asks, down for bids): (asks, bids). A fill at distance delta earns delta, so delta is the break-even move."""
+    price_at = np.r_[sec.s, sec.s_end[-1]]
+    t = np.arange(price_at.size - h)                 # seconds with a price h seconds later
+    up, s, hi, lo = price_at[t + h] - price_at[t], sec.s[t], sec.hi[t], sec.lo[t]
+    mean_where = lambda x, mask: x[mask].mean() if mask.any() else np.nan
+    with np.errstate(invalid="ignore"):              # seconds without trades on a side compare as False
+        pa = np.array([mean_where(up, hi >= s + d) for d in deltas])
+        pb = np.array([mean_where(-up, lo <= s - d) for d in deltas])
+    return pa, pb
