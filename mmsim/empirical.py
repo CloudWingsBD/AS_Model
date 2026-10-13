@@ -42,11 +42,13 @@ def to_seconds(trades: pd.DataFrame, n: int = 86400) -> Seconds:
     return Seconds(s=np.r_[px[0], s_end[:-1]], s_end=s_end, hi=hi, lo=lo)
 
 
-def fill_probability(sec: Seconds, deltas):
-    """Empirical probability that a quote at distance delta from s is reached during the second: (asks, bids)."""
+def fill_probability(sec: Seconds, deltas, tick: float = 0.01):
+    """Empirical probability that a quote at distance delta from s is reached during the second: (asks, bids).
+    Prices are compared in ticks, as in `backtest`, so a trade printed exactly at s + delta counts."""
+    s, hi, lo = (np.round(a / tick, 6) for a in (sec.s, sec.hi, sec.lo))
     with np.errstate(invalid="ignore"):   # seconds without trades on a side compare as False
-        pa = np.array([np.mean(sec.hi >= sec.s + d) for d in deltas])
-        pb = np.array([np.mean(sec.lo <= sec.s - d) for d in deltas])
+        pa = np.array([np.mean(hi >= s + np.round(d / tick, 6)) for d in deltas])
+        pb = np.array([np.mean(lo <= s - np.round(d / tick, 6)) for d in deltas])
     return pa, pb
 
 
@@ -132,15 +134,17 @@ def adverse_move(sec: Seconds, trades: dict, n_steps: int, h: int) -> float:
     return float(np.mean(-trades["side"][ok] * (price_at[t[ok] + h] - price_at[t[ok]])))
 
 
-def adverse_move_curve(sec: Seconds, deltas, h: int):
+def adverse_move_curve(sec: Seconds, deltas, h: int, tick: float = 0.01):
     """The same move for a quote at each distance delta from s, measured from the trades without a strategy: the
     mean move against the quote over the h seconds after the start of each second in which it is reached (up for
-    asks, down for bids): (asks, bids). A fill at distance delta earns delta, so delta is the break-even move."""
+    asks, down for bids): (asks, bids). A fill at distance delta earns delta, so delta is the break-even move.
+    Prices are compared in ticks, as in `backtest`."""
     price_at = np.r_[sec.s, sec.s_end[-1]]
     t = np.arange(price_at.size - h)                 # seconds with a price h seconds later
-    up, s, hi, lo = price_at[t + h] - price_at[t], sec.s[t], sec.hi[t], sec.lo[t]
+    up = price_at[t + h] - price_at[t]
+    s, hi, lo = (np.round(a[t] / tick, 6) for a in (sec.s, sec.hi, sec.lo))
     mean_where = lambda x, mask: x[mask].mean() if mask.any() else np.nan
     with np.errstate(invalid="ignore"):              # seconds without trades on a side compare as False
-        pa = np.array([mean_where(up, hi >= s + d) for d in deltas])
-        pb = np.array([mean_where(-up, lo <= s - d) for d in deltas])
+        pa = np.array([mean_where(up, hi >= s + np.round(d / tick, 6)) for d in deltas])
+        pb = np.array([mean_where(-up, lo <= s - np.round(d / tick, 6)) for d in deltas])
     return pa, pb
