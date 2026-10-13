@@ -11,7 +11,7 @@ A study of the Avellaneda & Stoikov (2008) market-making model from *High-freque
 
 - **Exact replication.** An exact dynamic-programming solution of the paper's model puts all 24 numbers in its Tables 1–3 within 1.9 standard errors of the true values (χ² = 19.4 with 24 degrees of freedom, p = 0.73). The solution is validated against brute-force enumeration of every path, closed forms and Monte Carlo.
 - **Adverse selection.** When each fill moves the mid against the market maker by ε, the cost is exactly (ε/2)(N₁ + q_T²) on every path, where N₁ is the number of steps with exactly one fill. The textbook adjustment of the quotes over-reacts to it.
-- **Real data.** Calibrated on Binance tick data, the model predicts the number of fills to within 11%, but it predicts profits where a backtest loses money every day. The cause is adverse selection: after a fill the price moves about \$16 (BTC) or \$0.55 (ETH) against the market maker, two to three times the spread earned.
+- **Real data.** Calibrated on Binance tick data, the model predicts the number of fills to within about 11%, but it predicts profits where a backtest loses money every day. The cause is adverse selection: after a fill the price moves about \$16 (BTC) or \$0.55 (ETH) against the market maker, two to three times the spread earned.
 - **Optimal quotes.** The exact optimum beats the A-S quotes by a wide margin at the paper's parameters (certainty equivalent 50.2 vs 22.4 at γ = 1). With the measured adverse selection it cuts real-data backtest losses by a median 95%, although no quote distance makes money when re-quoting once a second.
 
 ## Tech stack
@@ -71,7 +71,7 @@ Each fill moves the mid permanently by ε in the direction of the trade (`Params
 
 The model is calibrated on a week of Binance spot trades (BTCUSDT and ETHUSDT, 23–29 September 2026). Its predictions are compared with a backtest of the same strategies against the real order flow, re-quoting once a second in 10-minute episodes.
 
-- **The fill model works.** The exponential fill curve fits the data, and the number of fills is predicted to within 11% on every day.
+- **The fill model works.** The exponential fill curve fits the data, and the number of fills is predicted to within about 11% on every day.
 - **The paper's profit prediction fails.** It predicts a profit every day, while the backtest loses money every day, because of the adverse selection described above.
 - **Every fill costs one full ε, for both strategies.** Inventory control does not cut the adverse-selection cost, contrary to notebook 02's single-dealer model. Charging ε per fill (`Params(fill_cost=ε)`) predicts mean PnL to within about one standard error.
 - **Risk is understated, and forecasts need frequent recalibration.** The model predicts 37–72% of the actual PnL standard deviation. Calibrating on the previous hour gives a 0.5–0.6 correlation with the next hour's PnL, against about zero when calibrating on the previous day.
